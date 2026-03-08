@@ -1,0 +1,8 @@
+src/bin/oyo-portable-usb-cli usr/lib/oyo-portable-usb-creator/
+src/lib/* usr/lib/oyo-portable-usb-creator/lib/
+src/templates/* usr/lib/oyo-portable-usb-creator/templates/
+src/gui/oyo_portable_usb_gui.py usr/lib/oyo-portable-usb-creator/gui/
+packaging/oyo-portable-usb-creator usr/bin/
+desktop/oyo-portable-usb-creator.desktop usr/share/applications/
+desktop/oyo-portable-usb-creator.svg usr/share/icons/hicolor/scalable/apps/
+packaging/jp.openyellowos.oyo-portable-usb-creator.policy usr/share/polkit-1/actions/

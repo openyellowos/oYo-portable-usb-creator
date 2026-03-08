@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=oYo Portable USB Creator
+Name[ja]=oYo ポータブルUSB作成
+Comment=Create BIOS/UEFI portable USB media with persistence
+Comment[ja]=BIOS/UEFI両対応のポータブルUSBを作成します
+Exec=/usr/bin/oyo-portable-usb-creator
+Icon=oyo-portable-usb-creator
+Terminal=false
+Categories=Utility;System;
+Keywords=USB;Portable;ISO;Live;Installer;
+StartupNotify=true

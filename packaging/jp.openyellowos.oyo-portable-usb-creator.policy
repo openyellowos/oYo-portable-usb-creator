@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/software/polkit/policyconfig-1.dtd">
+<policyconfig>
+  <vendor>open.Yellow.os</vendor>
+  <vendor_url>https://github.com/openyellowos</vendor_url>
+  <icon_name>oyo-portable-usb-creator</icon_name>
+
+  <action id="jp.openyellowos.oyo-portable-usb-creator">
+    <description>Run oYo Portable USB Creator privileged operations</description>
+    <message>Authentication is required to create or inspect portable USB media.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/oyo-portable-usb-creator/oyo-portable-usb-cli</annotate>
+  </action>
+</policyconfig>

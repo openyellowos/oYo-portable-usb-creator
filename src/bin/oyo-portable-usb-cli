@@ -1,0 +1,386 @@
+#!/bin/bash
+set -euo pipefail
+
+BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# shellcheck source=/dev/null
+source "$BASE_DIR/lib/common.sh"
+source "$BASE_DIR/lib/validate.sh"
+source "$BASE_DIR/lib/detect.sh"
+source "$BASE_DIR/lib/partition.sh"
+source "$BASE_DIR/lib/mount.sh"
+source "$BASE_DIR/lib/extract_iso.sh"
+source "$BASE_DIR/lib/grub.sh"
+source "$BASE_DIR/lib/persistence.sh"
+source "$BASE_DIR/lib/cleanup.sh"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  oyo-portable-usb-cli create --iso PATH --device /dev/sdX [--yes --force] [--dry-run]
+  oyo-portable-usb-cli doctor --iso PATH --device /dev/sdX [--force] [--json]
+  oyo-portable-usb-cli list-devices [--json]
+
+Notes:
+  - 現状は UEFI / BIOS 両対応です
+  - persistence 領域は USB の残り容量をすべて使用します
+  - 指定したデバイスの内容はすべて消去されます
+  - 通常は確認文字列の入力が必要です
+  - 非対話で実行する場合は --yes --force の両方が必要です
+  - --dry-run は破壊的処理を行わず、実行計画のみ表示します
+  - doctor は事前診断だけを行い、書き込みはしません
+
+Example:
+  sudo ./bin/oyo-portable-usb-cli create \
+    --iso ./openyellowos.iso \
+    --device /dev/sdb
+
+  sudo ./bin/oyo-portable-usb-cli create \
+    --iso ./openyellowos.iso \
+    --device auto
+
+  sudo ./bin/oyo-portable-usb-cli create \
+    --iso ./openyellowos.iso \
+    --device /dev/sdb \
+    --yes --force
+
+  sudo ./bin/oyo-portable-usb-cli create \
+    --iso ./openyellowos.iso \
+    --device /dev/sdb \
+    --dry-run
+
+  sudo ./bin/oyo-portable-usb-cli doctor \
+    --iso ./openyellowos.iso \
+    --device /dev/sdb
+
+  sudo ./bin/oyo-portable-usb-cli doctor \
+    --iso ./openyellowos.iso \
+    --device /dev/sdb \
+    --json
+
+  ./bin/oyo-portable-usb-cli list-devices
+  ./bin/oyo-portable-usb-cli list-devices --json
+EOF
+}
+
+print_dry_run_plan() {
+    local iso="$1"
+    local dev="$2"
+
+    local iso_size_mib
+    local bios_start_mib=1
+    local bios_end_mib=3
+    local efi_start_mib=3
+    local efi_end_mib=515
+    local live_start_mib=515
+    local extra_mib=1024
+    local live_end_mib
+
+    iso_size_mib="$(du -m "$iso" | cut -f1)"
+    live_end_mib=$((live_start_mib + iso_size_mib + extra_mib))
+
+    printf '%s\n' "DRY-RUN: device=$dev"
+    printf '%s\n' "DRY-RUN: iso=$iso"
+    printf '%s\n' "DRY-RUN: mode=UEFI_AND_BIOS"
+    printf '%s\n' "DRY-RUN: bios_grub=${bios_start_mib}MiB-${bios_end_mib}MiB"
+    printf '%s\n' "DRY-RUN: efi=${efi_start_mib}MiB-${efi_end_mib}MiB"
+    printf '%s\n' "DRY-RUN: live=${live_start_mib}MiB-${live_end_mib}MiB"
+    printf '%s\n' "DRY-RUN: persistence=${live_end_mib}MiB-100%"
+    printf '%s\n' "DRY-RUN: live_files=/live/vmlinuz /live/initrd.img /live/filesystem.squashfs"
+    printf '%s\n' "DRY-RUN: actions=wipefs, partition, mkfs, copy_live, install_uefi_grub, install_bios_grub, setup_persistence"
+    printf '%s\n' "RESULT:DRY_RUN"
+}
+
+print_doctor_json() {
+    local iso="$1"
+    local dev="$2"
+
+    local size
+    local model
+    local rm
+    local tran
+    local iso_size_mib
+
+    size="$(get_device_size "$dev")"
+    model="$(get_device_model "$dev")"
+    rm="$(get_device_rm "$dev")"
+    tran="$(get_device_tran "$dev")"
+    iso_size_mib="$(du -m "$iso" | cut -f1)"
+
+    cat <<EOF
+{
+  "result": "DOCTOR_OK",
+  "device": "$(json_escape "$dev")",
+  "iso": "$(json_escape "$iso")",
+  "mode": "UEFI_AND_BIOS",
+  "checks": [
+    "COMMANDS",
+    "ISO",
+    "DEVICE",
+    "CAPACITY",
+    "LIVE_FILES"
+  ],
+  "device_info": {
+    "size": "$(json_escape "${size:-}")",
+    "rm": "$(json_escape "${rm:-}")",
+    "tran": "$(json_escape "${tran:-}")",
+    "model": "$(json_escape "${model:-}")"
+  },
+  "iso_info": {
+    "size_mib": "$iso_size_mib"
+  }
+}
+EOF
+}
+
+run_doctor() {
+    local json_mode="0"
+    local filtered_args=()
+
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --json)
+                json_mode="1"
+                shift
+                ;;
+            *)
+                filtered_args+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    if [ "$json_mode" != "1" ]; then
+        progress 1 "doctor を開始しています"
+    fi
+
+    parse_doctor_args "${filtered_args[@]}"
+
+    if [ "$target_device" = "auto" ]; then
+        if [ "$json_mode" != "1" ]; then
+            progress 3 "USBデバイスを自動検出しています"
+        fi
+        target_device=$(detect_auto_device)
+        if [ "$json_mode" != "1" ]; then
+            log_info "auto選択デバイス: $target_device"
+        fi
+    fi
+
+    if [ "$json_mode" != "1" ]; then
+        progress 5 "必要コマンドを確認しています"
+    fi
+    require_root
+    require_cmd lsblk
+    require_cmd findmnt
+    require_cmd du
+    require_cmd sed
+    require_cmd grep
+    require_cmd blockdev
+    require_cmd mount
+    require_cmd umount
+    require_cmd grub-install
+
+    if [ "$json_mode" != "1" ]; then
+        progress 10 "ISO とデバイスを確認しています"
+    fi
+    validate_iso_file "$iso_path"
+    validate_block_device "$target_device"
+    ensure_not_system_disk "$target_device"
+    ensure_device_not_in_use "$target_device"
+    ensure_device_looks_removable_or_usb "$target_device"
+    validate_device_capacity_for_portable "$target_device" "$iso_path"
+
+    if [ "$json_mode" != "1" ]; then
+        progress 20 "ISO内容を確認しています"
+    fi
+    prepare_workdirs
+    trap 'cleanup_create' EXIT
+
+    mount_iso_readonly "$iso_path" "$ISO_MOUNT_DIR"
+    ensure_live_files_exist_in_iso "$ISO_MOUNT_DIR"
+
+    if [ "$json_mode" != "1" ]; then
+        progress 100 "doctor が完了しました"
+    fi
+
+    if [ "$json_mode" = "1" ]; then
+        print_doctor_json "$iso_path" "$target_device"
+    else
+        cat <<EOF
+RESULT:DOCTOR_OK
+DEVICE:${target_device}
+ISO:${iso_path}
+MODE:UEFI_AND_BIOS
+CHECKS:COMMANDS,ISO,DEVICE,CAPACITY,LIVE_FILES
+EOF
+    fi
+
+    cleanup_create
+    trap - EXIT
+}
+
+run_create() {
+    progress 1 "開始しています"
+
+    parse_create_args "$@"
+
+    if [ "$target_device" = "auto" ]; then
+        progress 3 "USBデバイスを自動検出しています"
+        target_device=$(detect_auto_device)
+        log_info "auto選択デバイス: $target_device"
+    fi
+
+    progress 5 "入力を確認しています"
+    require_root
+    require_cmd lsblk
+    require_cmd parted
+    require_cmd partprobe
+    require_cmd udevadm
+    require_cmd wipefs
+    require_cmd mkfs.vfat
+    require_cmd mkfs.ext4
+    require_cmd mount
+    require_cmd umount
+    require_cmd rsync
+    require_cmd blkid
+    require_cmd sync
+    require_cmd findmnt
+    require_cmd du
+    require_cmd sed
+    require_cmd grep
+    require_cmd blockdev
+    require_cmd grub-install
+
+    validate_iso_file "$iso_path"
+    validate_block_device "$target_device"
+    ensure_not_system_disk "$target_device"
+    ensure_device_not_in_use "$target_device"
+    ensure_device_looks_removable_or_usb "$target_device"
+    validate_device_capacity_for_portable "$target_device" "$iso_path"
+
+    if [ "${dry_run:-0}" = "1" ]; then
+        progress 10 "dry-run を実行しています"
+        print_dry_run_plan "$iso_path" "$target_device"
+        return 0
+    fi
+
+    confirm_erase_device "$target_device"
+
+    trap 'cleanup_create' EXIT
+
+    progress 15 "作業ディレクトリを準備しています"
+    prepare_workdirs
+
+    progress 20 "既存マウントを解除しています"
+    unmount_device_partitions "$target_device"
+
+    progress 30 "パーティションを作成しています"
+    create_portable_partitions "$target_device" "$iso_path"
+
+    progress 45 "ファイルシステムを作成しています"
+    format_portable_partitions "$target_device"
+
+    progress 55 "ISOをマウントしています"
+    mount_iso_readonly "$iso_path" "$ISO_MOUNT_DIR"
+
+    progress 60 "USBパーティションをマウントしています"
+    mount_portable_partitions "$target_device"
+
+    progress 70 "live ファイルを確認しています"
+    ensure_live_files_exist_in_iso "$ISO_MOUNT_DIR"
+
+    progress 75 "live ファイルをコピーしています"
+    copy_live_files_to_usb "$ISO_MOUNT_DIR" "$LIVE_MOUNT_DIR"
+    validate_live_boot_files "$LIVE_MOUNT_DIR"
+
+    progress 85 "UEFI用GRUBを設定しています"
+    install_efi_boot_files "$ISO_MOUNT_DIR" "$EFI_MOUNT_DIR"
+
+    write_portable_grub_cfg \
+        "$BASE_DIR/templates/grub-portable.cfg" \
+        "$EFI_MOUNT_DIR/boot/grub/grub.cfg" \
+        "0" \
+        "/live/vmlinuz" \
+        "/live/initrd.img" \
+        "boot=live persistence oyo.mode=portable quiet splash"
+
+    write_efi_chain_grub_cfg \
+        "$BASE_DIR/templates/grub-efi-chain.cfg" \
+        "$EFI_MOUNT_DIR/EFI/BOOT/grub.cfg"
+
+    validate_grub_layout "$EFI_MOUNT_DIR"
+
+    progress 88 "BIOS用GRUBを設定しています"
+    install_bios_grub "$target_device" "$EFI_MOUNT_DIR/boot"
+    validate_bios_grub_layout "$EFI_MOUNT_DIR/boot"
+
+    progress 92 "persistence を設定しています"
+    setup_persistence "$PERSIST_MOUNT_DIR" "$BASE_DIR/templates/persistence.conf"
+
+    progress 96 "ディスクへ書き込みを反映しています"
+    sync
+
+    progress 98 "後処理をしています"
+    cleanup_create
+    trap - EXIT
+
+    progress 100 "完了しました"
+
+    cat <<EOF
+RESULT:SUCCESS
+DEVICE:${target_device}
+ISO:${iso_path}
+MODE:UEFI_AND_BIOS
+PERSISTENCE:USE_REMAINING_SPACE
+EOF
+}
+
+run_list_devices() {
+    local json_mode="0"
+
+    require_cmd lsblk
+
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --json)
+                json_mode="1"
+                shift
+                ;;
+            *)
+                fail "不明なオプションです: $1"
+                ;;
+        esac
+    done
+
+    if [ "$json_mode" = "1" ]; then
+        list_candidate_devices_json
+    else
+        list_candidate_devices
+    fi
+}
+
+main() {
+    local subcmd="${1:-}"
+    shift || true
+
+    case "$subcmd" in
+        create)
+            run_create "$@"
+            ;;
+        doctor)
+            run_doctor "$@"
+            ;;
+        list-devices)
+            run_list_devices "$@"
+            ;;
+        -h|--help|help|"")
+            usage
+            ;;
+        *)
+            usage
+            fail "不明なサブコマンドです: $subcmd"
+            ;;
+    esac
+}
+
+main "$@"

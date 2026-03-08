@@ -1,0 +1,29 @@
+Source: oyo-portable-usb-creator
+Section: utils
+Priority: optional
+Maintainer: openyellowos <solution92001@gmail.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/openyellowos/oyo-portable-usb-creator
+
+Package: oyo-portable-usb-creator
+Architecture: all
+Depends:
+ python3,
+ python3-gi,
+ gir1.2-gtk-4.0,
+ polkitd,
+ pkexec,
+ parted,
+ dosfstools,
+ e2fsprogs,
+ rsync,
+ grub-pc-bin,
+ grub-efi-amd64-bin,
+ grub-common,
+ ${misc:Depends}
+Description: Portable USB creator for open.Yellow.os
+ Create BIOS/UEFI portable live USB media with persistence for open.Yellow.os.
+ This package installs the GUI launcher, CLI engine, helper libraries,
+ templates, desktop integration, icon, and PolicyKit action.

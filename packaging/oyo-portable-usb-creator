@@ -1,0 +1,2 @@
+#!/bin/bash
+exec /usr/bin/python3 /usr/lib/oyo-portable-usb-creator/gui/oyo_portable_usb_gui.py "$@"

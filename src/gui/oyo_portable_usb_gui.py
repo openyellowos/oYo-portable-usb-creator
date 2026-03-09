@@ -45,7 +45,7 @@ class MainWindow(Gtk.ApplicationWindow):
         root.append(title)
 
         desc = Gtk.Label(
-            label="open.Yellow.os / Debian系 live ISO を BIOS/UEFI 両対応の persistence 付きUSBに作成します。"
+            label="open.Yellow.os の Live ISO から、BIOS / UEFI 両対応で「設定やファイルの変更を保存できる Live USB」を作成します。"
         )
         desc.set_xalign(0)
         desc.set_wrap(True)
@@ -91,7 +91,7 @@ class MainWindow(Gtk.ApplicationWindow):
         button_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         root.append(button_row)
 
-        self.doctor_button = Gtk.Button(label="doctor 実行")
+        self.doctor_button = Gtk.Button(label="診断")
         self.doctor_button.connect("clicked", self.on_run_doctor)
         self.doctor_button.set_sensitive(False)
         button_row.append(self.doctor_button)
@@ -112,7 +112,7 @@ class MainWindow(Gtk.ApplicationWindow):
         root.append(self.status_label)
 
         # doctor結果
-        doctor_frame = Gtk.Frame(label="doctor 結果")
+        doctor_frame = Gtk.Frame(label="診断結果")
         doctor_frame.set_hexpand(True)
         doctor_frame.set_vexpand(True)
         root.append(doctor_frame)
@@ -130,7 +130,7 @@ class MainWindow(Gtk.ApplicationWindow):
         doctor_frame.set_child(doctor_scroll)
 
         # createログ
-        log_frame = Gtk.Frame(label="create ログ")
+        log_frame = Gtk.Frame(label="作成 ログ")
         log_frame.set_hexpand(True)
         log_frame.set_vexpand(True)
         root.append(log_frame)
@@ -421,8 +421,8 @@ class MainWindow(Gtk.ApplicationWindow):
             self.show_error("入力不足", "ISOファイルとUSBデバイスを選択してください。")
             return
 
-        self.set_status("doctor を実行しています")
-        self.set_doctor_text("doctor 実行中...")
+        self.set_status("診断を実行しています")
+        self.set_doctor_text("診断 実行中...")
         self.update_action_state()
 
         def worker():
@@ -439,7 +439,7 @@ class MainWindow(Gtk.ApplicationWindow):
                     self.last_doctor_iso = self.selected_iso
                     self.last_doctor_device = self.selected_device
                     self.set_doctor_text(pretty)
-                    self.set_status("doctor 完了")
+                    self.set_status("診断 完了")
                     self.update_action_state()
                     return False
 
@@ -452,9 +452,9 @@ class MainWindow(Gtk.ApplicationWindow):
                     self.doctor_ok = False
                     self.last_doctor_iso = ""
                     self.last_doctor_device = ""
-                    self.set_doctor_text(f"doctor 失敗:\n{detail}")
-                    self.set_status("doctor 失敗")
-                    self.show_error("doctor に失敗しました", detail)
+                    self.set_doctor_text(f"診断 失敗:\n{detail}")
+                    self.set_status("診断 失敗")
+                    self.show_error("診断 に失敗しました", detail)
                     self.update_action_state()
                     return False
 
@@ -465,9 +465,9 @@ class MainWindow(Gtk.ApplicationWindow):
                     self.doctor_ok = False
                     self.last_doctor_iso = ""
                     self.last_doctor_device = ""
-                    self.set_doctor_text(f"doctor 失敗:\n{e}")
-                    self.set_status("doctor 失敗")
-                    self.show_error("doctor に失敗しました", str(e))
+                    self.set_doctor_text(f"診断 失敗:\n{e}")
+                    self.set_status("診断 失敗")
+                    self.show_error("診断 に失敗しました", str(e))
                     self.update_action_state()
                     return False
 
@@ -484,7 +484,7 @@ class MainWindow(Gtk.ApplicationWindow):
             return
 
         if not self.doctor_ok:
-            self.show_error("doctor 未実行", "先に doctor を実行して問題がないことを確認してください。")
+            self.show_error("診断 未実行", "先に 診断 を実行して問題がないことを確認してください。")
             return
 
         if not self.confirm_create():
@@ -492,7 +492,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
         self.progress.set_fraction(0.0)
         self.log_buffer.set_text("")
-        self.set_status("create を開始しています")
+        self.set_status("作成 を開始しています")
         self.update_action_state()
 
         cmd = [
@@ -518,8 +518,8 @@ class MainWindow(Gtk.ApplicationWindow):
         except Exception as e:
             self.create_process = None
             self.update_action_state()
-            self.show_error("create の開始に失敗しました", str(e))
-            self.set_status("create の開始に失敗しました")
+            self.show_error("作成 の開始に失敗しました", str(e))
+            self.set_status("作成 の開始に失敗しました")
             return
 
         threading.Thread(target=self.read_create_output, daemon=True).start()
@@ -565,12 +565,11 @@ class MainWindow(Gtk.ApplicationWindow):
                 self.progress.set_fraction(1.0)
                 self.show_info(
                     "完了",
-                    "Portable USB の作成が完了しました。\n\n"
-                    "このUSBは BIOS / UEFI 両対応・persistence 対応です。"
+                    "Portable USB の作成が完了しました。"
                 )
             else:
                 self.set_status("Portable USB 作成に失敗しました")
-                self.show_error("作成に失敗しました", "create ログを確認してください。")
+                self.show_error("作成に失敗しました", "作成 ログを確認してください。")
 
             return False
 

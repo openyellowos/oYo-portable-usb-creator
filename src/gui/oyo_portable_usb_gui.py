@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import threading
+import re
 
 import gi
 
@@ -29,20 +30,14 @@ class MainWindow(Gtk.ApplicationWindow):
         self.last_doctor_device = ""
         self.last_doctor_iso = ""
 
-        self.set_default_size(980, 760)
+        self.set_default_size(980, 640)
 
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        root.set_margin_top(20)
-        root.set_margin_bottom(20)
-        root.set_margin_start(20)
-        root.set_margin_end(20)
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        root.set_margin_top(12)
+        root.set_margin_bottom(12)
+        root.set_margin_start(16)
+        root.set_margin_end(16)
         self.set_child(root)
-
-        # タイトル
-        title = Gtk.Label()
-        title.set_xalign(0)
-        title.set_markup("<span size='xx-large' weight='bold'>oYo Portable USB Creator</span>")
-        root.append(title)
 
         desc = Gtk.Label(
             label="open.Yellow.os の Live ISO から、BIOS / UEFI 両対応で「設定やファイルの変更を保存できる Live USB」を作成します。"
@@ -130,7 +125,7 @@ class MainWindow(Gtk.ApplicationWindow):
         doctor_frame.set_child(doctor_scroll)
 
         # createログ
-        log_frame = Gtk.Frame(label="作成 ログ")
+        log_frame = Gtk.Frame(label="作成ログ")
         log_frame.set_hexpand(True)
         log_frame.set_vexpand(True)
         root.append(log_frame)
@@ -529,8 +524,15 @@ class MainWindow(Gtk.ApplicationWindow):
         if proc is None or proc.stdout is None:
             return
 
+        ansi_escape = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
+        
         for line in proc.stdout:
             text = line.rstrip("\n")
+
+            # 端末制御文字を除去
+            text = text.replace("\r", "")
+            text = text.replace("\b", "")
+            text = ansi_escape.sub("", text)
 
             def update_line(t=text):
                 self.append_log(t)

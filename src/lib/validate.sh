@@ -5,6 +5,26 @@ target_device=""
 assume_yes="0"
 force_mode="0"
 dry_run="0"
+persistence_encryption="none"
+luks_passphrase_file=""
+
+validate_persistence_encryption() {
+    case "${persistence_encryption:-none}" in
+        none|luks)
+            ;;
+        *)
+            fail "--persistence-encryption は none または luks を指定してください"
+            ;;
+    esac
+
+    if [ -n "${luks_passphrase_file:-}" ] && [ ! -f "$luks_passphrase_file" ]; then
+        fail "LUKSパスフレーズファイルが見つかりません: $luks_passphrase_file"
+    fi
+
+    if [ "${persistence_encryption:-none}" != "luks" ] && [ -n "${luks_passphrase_file:-}" ]; then
+        fail "--luks-passphrase-file は --persistence-encryption luks と組み合わせて使用してください"
+    fi
+}
 
 parse_create_args() {
     while [ "$#" -gt 0 ]; do
@@ -29,6 +49,14 @@ parse_create_args() {
                 dry_run="1"
                 shift
                 ;;
+            --persistence-encryption)
+                persistence_encryption="$2"
+                shift 2
+                ;;
+            --luks-passphrase-file)
+                luks_passphrase_file="$2"
+                shift 2
+                ;;
             *)
                 fail "不明なオプション: $1"
                 ;;
@@ -37,6 +65,7 @@ parse_create_args() {
 
     [ -n "${iso_path:-}" ] || fail "--iso は必須です"
     [ -n "${target_device:-}" ] || fail "--device は必須です"
+    validate_persistence_encryption
 }
 
 parse_doctor_args() {
@@ -54,6 +83,14 @@ parse_doctor_args() {
                 force_mode="1"
                 shift
                 ;;
+            --persistence-encryption)
+                persistence_encryption="$2"
+                shift 2
+                ;;
+            --luks-passphrase-file)
+                luks_passphrase_file="$2"
+                shift 2
+                ;;
             *)
                 fail "不明なオプション: $1"
                 ;;
@@ -62,6 +99,7 @@ parse_doctor_args() {
 
     [ -n "${iso_path:-}" ] || fail "--iso は必須です"
     [ -n "${target_device:-}" ] || fail "--device は必須です"
+    validate_persistence_encryption
 }
 
 validate_iso_file() {
@@ -156,7 +194,7 @@ confirm_erase_device() {
         return 0
     fi
 
-    cat >&2 <<EOF
+    cat >&2 <<EOF2
 WARNING: 指定したデバイスの内容はすべて消去されます
 
 DEVICE: $dev
@@ -166,7 +204,7 @@ RM    : ${rm:-"-"}
 TRAN  : ${tran:-"-"}
 
 続行するには以下を正確に入力してください:
-EOF
+EOF2
 
     expected="ERASE $dev"
     printf "%s\n> " "$expected" >&2

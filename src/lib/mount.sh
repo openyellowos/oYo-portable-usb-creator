@@ -16,13 +16,16 @@ mount_iso_readonly() {
 # 構成:
 #   p2 = EFI
 #   p3 = LIVE
-#   p4 = persistence
+#   p4 = persistence または LUKS コンテナ
 mount_portable_partitions() {
     local dev="$1"
+    local encryption_mode="${2:-none}"
+    local passphrase_file="${3:-}"
 
     local p2
     local p3
     local p4
+    local persist_source
 
     p2="$(get_partition "$dev" 2)"
     p3="$(get_partition "$dev" 3)"
@@ -32,13 +35,26 @@ mount_portable_partitions() {
 
     mount "$p2" "$EFI_MOUNT_DIR" || fail "EFIパーティションのマウントに失敗しました: $p2"
     mount "$p3" "$LIVE_MOUNT_DIR" || fail "LIVEパーティションのマウントに失敗しました: $p3"
-    mount "$p4" "$PERSIST_MOUNT_DIR" || fail "persistenceパーティションのマウントに失敗しました: $p4"
+
+    case "$encryption_mode" in
+        none)
+            persist_source="$p4"
+            ;;
+        luks)
+            open_luks_persistence "$p4" "$passphrase_file"
+            persist_source="/dev/mapper/$(get_persist_mapper_name)"
+            ;;
+        *)
+            fail "未対応の persistence 暗号化モードです: $encryption_mode"
+            ;;
+    esac
+
+    mount "$persist_source" "$PERSIST_MOUNT_DIR" || fail "persistenceパーティションのマウントに失敗しました: $persist_source"
 }
 
 # 指定マウントポイントがマウント済みならアンマウントする
 unmount_if_mounted() {
     local mount_point="${1:-}"
-
     [ -n "$mount_point" ] || return 0
 
     if mountpoint -q "$mount_point"; then
@@ -49,6 +65,7 @@ unmount_if_mounted() {
 # create処理で使う全マウントポイントをアンマウントする
 unmount_all_workdirs() {
     unmount_if_mounted "${PERSIST_MOUNT_DIR:-}"
+    close_luks_persistence || true
     unmount_if_mounted "${LIVE_MOUNT_DIR:-}"
     unmount_if_mounted "${EFI_MOUNT_DIR:-}"
     unmount_if_mounted "${ISO_MOUNT_DIR:-}"

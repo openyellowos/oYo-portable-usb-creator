@@ -31,9 +31,9 @@ require_cmd() {
 
 # デバイス名からパーティションパスを返す
 # 例:
-#   /dev/sdb      -> /dev/sdb1
-#   /dev/nvme0n1  -> /dev/nvme0n1p1
-#   /dev/mmcblk0  -> /dev/mmcblk0p1
+#   /dev/sdb -> /dev/sdb1
+#   /dev/nvme0n1 -> /dev/nvme0n1p1
+#   /dev/mmcblk0 -> /dev/mmcblk0p1
 get_partition() {
     local dev="$1"
     local num="$2"
@@ -54,6 +54,9 @@ prepare_workdirs() {
     EFI_MOUNT_DIR="$WORK_DIR/efi"
     LIVE_MOUNT_DIR="$WORK_DIR/live"
     PERSIST_MOUNT_DIR="$WORK_DIR/persist"
-
     mkdir -p "$ISO_MOUNT_DIR" "$EFI_MOUNT_DIR" "$LIVE_MOUNT_DIR" "$PERSIST_MOUNT_DIR"
+}
+
+get_persist_mapper_name() {
+    echo "oyo_persist"
 }

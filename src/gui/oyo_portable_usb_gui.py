@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import re
+import tempfile
 
 import gi
 
@@ -29,6 +30,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.doctor_ok = False
         self.last_doctor_device = ""
         self.last_doctor_iso = ""
+        self.luks_passphrase_file = None
 
         self.set_default_size(980, 640)
 
@@ -81,6 +83,50 @@ class MainWindow(Gtk.ApplicationWindow):
         self.reload_button = Gtk.Button(label="再読み込み")
         self.reload_button.connect("clicked", self.on_reload_devices)
         dev_row.append(self.reload_button)
+
+        # セキュリティ設定
+        security_frame = Gtk.Frame(label="セキュリティ設定")
+        security_frame.set_hexpand(True)
+        root.append(security_frame)
+
+        security_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        security_box.set_margin_top(8)
+        security_box.set_margin_bottom(8)
+        security_box.set_margin_start(8)
+        security_box.set_margin_end(8)
+        security_frame.set_child(security_box)
+
+        self.luks_check = Gtk.CheckButton(label="保存領域 を 暗号化(LUKS)する")
+        self.luks_check.connect("toggled", self.on_security_option_changed)
+        security_box.append(self.luks_check)
+
+        pass_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        security_box.append(pass_row)
+
+        pass_label = Gtk.Label(label="LUKS パスフレーズ")
+        pass_label.set_xalign(0)
+        pass_label.set_size_request(140, -1)
+        pass_row.append(pass_label)
+
+        self.luks_pass_entry = Gtk.PasswordEntry()
+        self.luks_pass_entry.set_hexpand(True)
+        self.luks_pass_entry.set_sensitive(False)
+        self.luks_pass_entry.connect("changed", self.on_security_option_changed)
+        pass_row.append(self.luks_pass_entry)
+
+        confirm_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        security_box.append(confirm_row)
+
+        confirm_label = Gtk.Label(label="確認")
+        confirm_label.set_xalign(0)
+        confirm_label.set_size_request(140, -1)
+        confirm_row.append(confirm_label)
+
+        self.luks_pass_confirm_entry = Gtk.PasswordEntry()
+        self.luks_pass_confirm_entry.set_hexpand(True)
+        self.luks_pass_confirm_entry.set_sensitive(False)
+        self.luks_pass_confirm_entry.connect("changed", self.on_security_option_changed)
+        confirm_row.append(self.luks_pass_confirm_entry)
 
         # 操作ボタン
         button_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -170,6 +216,37 @@ class MainWindow(Gtk.ApplicationWindow):
         self.last_doctor_device = ""
         self.update_action_state()
 
+    def on_security_option_changed(self, *_args):
+        enabled = self.luks_check.get_active()
+        self.luks_pass_entry.set_sensitive(enabled)
+        self.luks_pass_confirm_entry.set_sensitive(enabled)
+
+        if not enabled:
+            self.luks_pass_entry.set_text("")
+            self.luks_pass_confirm_entry.set_text("")
+
+        self.invalidate_doctor_result()
+        self.update_action_state()
+
+    def get_luks_config(self):
+        enabled = self.luks_check.get_active()
+        if not enabled:
+            return {"enabled": False, "passphrase": ""}
+
+        pw1 = self.luks_pass_entry.get_text()
+        pw2 = self.luks_pass_confirm_entry.get_text()
+
+        if not pw1:
+            raise ValueError("LUKS パスフレーズを入力してください。")
+
+        if len(pw1) < 8:
+            raise ValueError("LUKS パスフレーズは8文字以上にしてください。")
+
+        if pw1 != pw2:
+            raise ValueError("LUKS パスフレーズと確認用パスフレーズが一致しません。")
+
+        return {"enabled": True, "passphrase": pw1}
+
     def update_action_state(self) -> None:
         iso_ok = bool(self.selected_iso)
         dev_ok = bool(self.selected_device)
@@ -210,10 +287,17 @@ class MainWindow(Gtk.ApplicationWindow):
         dialog.show()
 
     def confirm_create(self):
+        security_text = (
+            "LUKS 暗号化: 有効"
+            if self.luks_check.get_active()
+            else "LUKS 暗号化: 無効"
+        )
+
         message = (
             "選択したUSBデバイスの内容はすべて消去されます。\n\n"
             f"ISO:\n  {self.selected_iso}\n\n"
             f"USBデバイス:\n  {self.selected_device}\n\n"
+            f"セキュリティ設定:\n  {security_text}\n\n"
             "続行しますか？"
         )
 
@@ -293,6 +377,7 @@ class MainWindow(Gtk.ApplicationWindow):
         check_names = {
             "COMMANDS": "必要コマンド",
             "ISO": "ISO",
+            "SECURITY": "セキュリティ設定",
             "DEVICE": "デバイス",
             "CAPACITY": "容量",
             "LIVE_FILES": "live ファイル",
@@ -301,6 +386,12 @@ class MainWindow(Gtk.ApplicationWindow):
         for c in checks:
             label = check_names.get(c, c)
             lines.append(f"  ✓ {label}")
+
+        lines.append("")
+        lines.append("セキュリティ設定")
+        lines.append(
+            "  LUKS 暗号化: 有効" if self.luks_check.get_active() else "  LUKS 暗号化: 無効"
+        )
 
         return "\n".join(lines)
 
@@ -422,8 +513,12 @@ class MainWindow(Gtk.ApplicationWindow):
 
         def worker():
             try:
+                args = ["doctor", "--iso", self.selected_iso, "--device", self.selected_device, "--json"]
+                if self.luks_check.get_active():
+                    args += ["--persistence-encryption", "luks"]
+
                 data = self.run_cli_json(
-                    ["doctor", "--iso", self.selected_iso, "--device", self.selected_device, "--json"],
+                    args,
                     use_pkexec=True,
                 )
 
@@ -482,6 +577,12 @@ class MainWindow(Gtk.ApplicationWindow):
             self.show_error("診断 未実行", "先に 診断 を実行して問題がないことを確認してください。")
             return
 
+        try:
+            luks = self.get_luks_config()
+        except ValueError as e:
+            self.show_error("入力エラー", str(e))
+            return
+
         if not self.confirm_create():
             return
 
@@ -501,6 +602,20 @@ class MainWindow(Gtk.ApplicationWindow):
             "--yes",
             "--force",
         ]
+        self.luks_passphrase_file = None
+
+        if luks["enabled"]:
+            tmp = tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8")
+            tmp.write(luks["passphrase"])
+            tmp.flush()
+            tmp.close()
+            os.chmod(tmp.name, 0o600)
+
+            self.luks_passphrase_file = tmp.name
+            cmd += [
+                "--persistence-encryption", "luks",
+                "--luks-passphrase-file", self.luks_passphrase_file,
+            ]
 
         try:
             self.create_process = subprocess.Popen(
@@ -512,12 +627,23 @@ class MainWindow(Gtk.ApplicationWindow):
             )
         except Exception as e:
             self.create_process = None
+            self.cleanup_luks_temp_file()
             self.update_action_state()
             self.show_error("作成 の開始に失敗しました", str(e))
             self.set_status("作成 の開始に失敗しました")
             return
 
         threading.Thread(target=self.read_create_output, daemon=True).start()
+
+    def cleanup_luks_temp_file(self):
+        path = self.luks_passphrase_file
+        self.luks_passphrase_file = None
+
+        if path and os.path.exists(path):
+            try:
+                os.remove(path)
+            except Exception:
+                pass
 
     def read_create_output(self):
         proc = self.create_process
@@ -560,6 +686,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
         def finish():
             self.create_process = None
+            self.cleanup_luks_temp_file()
             self.update_action_state()
 
             if rc == 0:

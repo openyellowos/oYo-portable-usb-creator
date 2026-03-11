@@ -18,6 +18,24 @@ install_efi_boot_files() {
     fi
 }
 
+build_portable_kernel_args() {
+    local encryption_mode="${1:-none}"
+    local args="boot=live persistence oyo.mode=portable quiet splash"
+
+    case "$encryption_mode" in
+        none)
+            ;;
+        luks)
+            args+=" persistence-encryption=luks"
+            ;;
+        *)
+            fail "未対応の persistence 暗号化モードです: $encryption_mode"
+            ;;
+    esac
+
+    printf '%s' "$args"
+}
+
 # Portable専用の grub.cfg をテンプレートから生成する
 write_portable_grub_cfg() {
     local template="$1"

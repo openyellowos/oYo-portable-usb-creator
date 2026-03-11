@@ -1,7 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
+#deb用
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+#ローカル実行用
+# BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 # shellcheck source=/dev/null
 source "$BASE_DIR/lib/common.sh"
@@ -15,16 +19,17 @@ source "$BASE_DIR/lib/persistence.sh"
 source "$BASE_DIR/lib/cleanup.sh"
 
 usage() {
-    cat <<'EOF'
+    cat <<'EOU'
 Usage:
-  oyo-portable-usb-cli create --iso PATH --device /dev/sdX [--yes --force] [--dry-run]
-  oyo-portable-usb-cli doctor --iso PATH --device /dev/sdX [--force] [--json]
+  oyo-portable-usb-cli create --iso PATH --device /dev/sdX [--yes --force] [--dry-run] [--persistence-encryption none|luks] [--luks-passphrase-file FILE]
+  oyo-portable-usb-cli doctor --iso PATH --device /dev/sdX [--force] [--json] [--persistence-encryption none|luks]
   oyo-portable-usb-cli list-devices [--json]
 
 Notes:
   - 現状は UEFI / BIOS 両対応です
   - persistence 領域は USB の残り容量をすべて使用します
   - 指定したデバイスの内容はすべて消去されます
+  - LUKS 暗号化を使う場合は cryptsetup が必要です
   - 通常は確認文字列の入力が必要です
   - 非対話で実行する場合は --yes --force の両方が必要です
   - --dry-run は破壊的処理を行わず、実行計画のみ表示します
@@ -49,6 +54,11 @@ Example:
     --device /dev/sdb \
     --dry-run
 
+  sudo ./bin/oyo-portable-usb-cli create \
+    --iso ./openyellowos.iso \
+    --device /dev/sdb \
+    --persistence-encryption luks
+
   sudo ./bin/oyo-portable-usb-cli doctor \
     --iso ./openyellowos.iso \
     --device /dev/sdb
@@ -60,12 +70,13 @@ Example:
 
   ./bin/oyo-portable-usb-cli list-devices
   ./bin/oyo-portable-usb-cli list-devices --json
-EOF
+EOU
 }
 
 print_dry_run_plan() {
     local iso="$1"
     local dev="$2"
+    local encryption_mode="${3:-none}"
 
     local iso_size_mib
     local bios_start_mib=1
@@ -86,6 +97,7 @@ print_dry_run_plan() {
     printf '%s\n' "DRY-RUN: efi=${efi_start_mib}MiB-${efi_end_mib}MiB"
     printf '%s\n' "DRY-RUN: live=${live_start_mib}MiB-${live_end_mib}MiB"
     printf '%s\n' "DRY-RUN: persistence=${live_end_mib}MiB-100%"
+    printf '%s\n' "DRY-RUN: persistence_encryption=${encryption_mode}"
     printf '%s\n' "DRY-RUN: live_files=/live/vmlinuz /live/initrd.img /live/filesystem.squashfs"
     printf '%s\n' "DRY-RUN: actions=wipefs, partition, mkfs, copy_live, install_uefi_grub, install_bios_grub, setup_persistence"
     printf '%s\n' "RESULT:DRY_RUN"
@@ -107,7 +119,7 @@ print_doctor_json() {
     tran="$(get_device_tran "$dev")"
     iso_size_mib="$(du -m "$iso" | cut -f1)"
 
-    cat <<EOF
+    cat <<EOF2
 {
   "result": "DOCTOR_OK",
   "device": "$(json_escape "$dev")",
@@ -130,7 +142,39 @@ print_doctor_json() {
     "size_mib": "$iso_size_mib"
   }
 }
-EOF
+EOF2
+}
+
+ensure_luks_passphrase_file() {
+    if [ "${persistence_encryption:-none}" != "luks" ]; then
+        return 0
+    fi
+
+    if [ -n "${luks_passphrase_file:-}" ]; then
+        return 0
+    fi
+
+    if [ "${dry_run:-0}" = "1" ]; then
+        return 0
+    fi
+
+    local pass1
+    local pass2
+
+    printf 'LUKS パスフレーズを入力してください: ' >&2
+    read -r -s pass1
+    printf '\n' >&2
+    printf 'LUKS パスフレーズ（確認）: ' >&2
+    read -r -s pass2
+    printf '\n' >&2
+
+    [ -n "$pass1" ] || fail "LUKS パスフレーズは空にできません"
+    [ "$pass1" = "$pass2" ] || fail "LUKS パスフレーズが一致しません"
+
+    LUKS_PASSPHRASE_TEMP_FILE="$(mktemp /tmp/oyo-luks-passphrase.XXXXXX)"
+    chmod 600 "$LUKS_PASSPHRASE_TEMP_FILE"
+    printf '%s' "$pass1" > "$LUKS_PASSPHRASE_TEMP_FILE"
+    luks_passphrase_file="$LUKS_PASSPHRASE_TEMP_FILE"
 }
 
 run_doctor() {
@@ -180,6 +224,10 @@ run_doctor() {
     require_cmd umount
     require_cmd grub-install
 
+    if [ "${persistence_encryption:-none}" = "luks" ]; then
+        require_cmd cryptsetup
+    fi
+
     if [ "$json_mode" != "1" ]; then
         progress 10 "ISO とデバイスを確認しています"
     fi
@@ -206,13 +254,13 @@ run_doctor() {
     if [ "$json_mode" = "1" ]; then
         print_doctor_json "$iso_path" "$target_device"
     else
-        cat <<EOF
+        cat <<EOF2
 RESULT:DOCTOR_OK
 DEVICE:${target_device}
 ISO:${iso_path}
 MODE:UEFI_AND_BIOS
 CHECKS:COMMANDS,ISO,DEVICE,CAPACITY,LIVE_FILES
-EOF
+EOF2
     fi
 
     cleanup_create
@@ -251,16 +299,21 @@ run_create() {
     require_cmd blockdev
     require_cmd grub-install
 
+    if [ "${persistence_encryption:-none}" = "luks" ]; then
+        require_cmd cryptsetup
+    fi
+
     validate_iso_file "$iso_path"
     validate_block_device "$target_device"
     ensure_not_system_disk "$target_device"
     ensure_device_not_in_use "$target_device"
     ensure_device_looks_removable_or_usb "$target_device"
     validate_device_capacity_for_portable "$target_device" "$iso_path"
+    ensure_luks_passphrase_file
 
     if [ "${dry_run:-0}" = "1" ]; then
         progress 10 "dry-run を実行しています"
-        print_dry_run_plan "$iso_path" "$target_device"
+        print_dry_run_plan "$iso_path" "$target_device" "$persistence_encryption"
         return 0
     fi
 
@@ -278,13 +331,13 @@ run_create() {
     create_portable_partitions "$target_device" "$iso_path"
 
     progress 45 "ファイルシステムを作成しています"
-    format_portable_partitions "$target_device"
+    format_portable_partitions "$target_device" "$persistence_encryption" "$luks_passphrase_file"
 
     progress 55 "ISOをマウントしています"
     mount_iso_readonly "$iso_path" "$ISO_MOUNT_DIR"
 
     progress 60 "USBパーティションをマウントしています"
-    mount_portable_partitions "$target_device"
+    mount_portable_partitions "$target_device" "$persistence_encryption" "$luks_passphrase_file"
 
     progress 70 "live ファイルを確認しています"
     ensure_live_files_exist_in_iso "$ISO_MOUNT_DIR"
@@ -302,7 +355,7 @@ run_create() {
         "0" \
         "/live/vmlinuz" \
         "/live/initrd.img" \
-        "boot=live persistence oyo.mode=portable quiet splash"
+        "$(build_portable_kernel_args "$persistence_encryption")"
 
     write_efi_chain_grub_cfg \
         "$BASE_DIR/templates/grub-efi-chain.cfg" \
@@ -326,13 +379,14 @@ run_create() {
 
     progress 100 "完了しました"
 
-    cat <<EOF
+    cat <<EOF2
 RESULT:SUCCESS
 DEVICE:${target_device}
 ISO:${iso_path}
 MODE:UEFI_AND_BIOS
 PERSISTENCE:USE_REMAINING_SPACE
-EOF
+PERSISTENCE_ENCRYPTION:${persistence_encryption}
+EOF2
 }
 
 run_list_devices() {

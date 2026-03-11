@@ -27,7 +27,7 @@ Usage:
 
 Notes:
   - 現状は UEFI / BIOS 両対応です
-  - persistence 領域は USB の残り容量をすべて使用します
+  - persistence.img は p4 backing store の空き容量の95%を使用します
   - 指定したデバイスの内容はすべて消去されます
   - LUKS 暗号化を使う場合は cryptsetup が必要です
   - 通常は確認文字列の入力が必要です
@@ -96,10 +96,11 @@ print_dry_run_plan() {
     printf '%s\n' "DRY-RUN: bios_grub=${bios_start_mib}MiB-${bios_end_mib}MiB"
     printf '%s\n' "DRY-RUN: efi=${efi_start_mib}MiB-${efi_end_mib}MiB"
     printf '%s\n' "DRY-RUN: live=${live_start_mib}MiB-${live_end_mib}MiB"
-    printf '%s\n' "DRY-RUN: persistence=${live_end_mib}MiB-100%"
+    printf '%s\n' "DRY-RUN: persistence_backing=${live_end_mib}MiB-100%"
+    printf '%s\n' "DRY-RUN: persistence_image=persistence.img (size=95% of free space on p4 backing store)"
     printf '%s\n' "DRY-RUN: persistence_encryption=${encryption_mode}"
     printf '%s\n' "DRY-RUN: live_files=/live/vmlinuz /live/initrd.img /live/filesystem.squashfs"
-    printf '%s\n' "DRY-RUN: actions=wipefs, partition, mkfs, copy_live, install_uefi_grub, install_bios_grub, setup_persistence"
+    printf '%s\n' "DRY-RUN: actions=wipefs, partition, mkfs, create_persistence_img, copy_live, install_uefi_grub, install_bios_grub, setup_persistence"
     printf '%s\n' "RESULT:DRY_RUN"
 }
 
@@ -367,10 +368,16 @@ run_create() {
     install_bios_grub "$target_device" "$EFI_MOUNT_DIR/boot"
     validate_bios_grub_layout "$EFI_MOUNT_DIR/boot"
 
-    progress 92 "persistence を設定しています"
+    progress 92 "persistence.img を作成しています"
+    create_persistence_image "$PERSIST_BACKING_MOUNT_DIR" "95"
+
+    progress 94 "persistence.img をマウントしています"
+    mount_persistence_image "$PERSIST_BACKING_MOUNT_DIR/persistence.img"
+
+    progress 96 "persistence を設定しています"
     setup_persistence "$PERSIST_MOUNT_DIR" "$BASE_DIR/templates/persistence.conf"
 
-    progress 96 "ディスクへ書き込みを反映しています"
+    progress 97 "ディスクへ書き込みを反映しています"
     sync
 
     progress 98 "後処理をしています"
@@ -384,7 +391,7 @@ RESULT:SUCCESS
 DEVICE:${target_device}
 ISO:${iso_path}
 MODE:UEFI_AND_BIOS
-PERSISTENCE:USE_REMAINING_SPACE
+PERSISTENCE_IMAGE:95_PERCENT_OF_P4_FREE_SPACE
 PERSISTENCE_ENCRYPTION:${persistence_encryption}
 EOF2
 }

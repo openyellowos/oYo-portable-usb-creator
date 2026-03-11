@@ -16,7 +16,7 @@ mount_iso_readonly() {
 # 構成:
 #   p2 = EFI
 #   p3 = LIVE
-#   p4 = persistence または LUKS コンテナ
+#   p4 = persistence.img 格納用 backing store または LUKS コンテナ
 mount_portable_partitions() {
     local dev="$1"
     local encryption_mode="${2:-none}"
@@ -31,7 +31,9 @@ mount_portable_partitions() {
     p3="$(get_partition "$dev" 3)"
     p4="$(get_partition "$dev" 4)"
 
-    mkdir -p "$EFI_MOUNT_DIR" "$LIVE_MOUNT_DIR" "$PERSIST_MOUNT_DIR"
+    PERSIST_BACKING_MOUNT_DIR="${PERSIST_BACKING_MOUNT_DIR:-${PERSIST_MOUNT_DIR}-backing}"
+
+    mkdir -p "$EFI_MOUNT_DIR" "$LIVE_MOUNT_DIR" "$PERSIST_BACKING_MOUNT_DIR" "$PERSIST_MOUNT_DIR"
 
     mount "$p2" "$EFI_MOUNT_DIR" || fail "EFIパーティションのマウントに失敗しました: $p2"
     mount "$p3" "$LIVE_MOUNT_DIR" || fail "LIVEパーティションのマウントに失敗しました: $p3"
@@ -49,7 +51,16 @@ mount_portable_partitions() {
             ;;
     esac
 
-    mount "$persist_source" "$PERSIST_MOUNT_DIR" || fail "persistenceパーティションのマウントに失敗しました: $persist_source"
+    mount "$persist_source" "$PERSIST_BACKING_MOUNT_DIR" || fail "persistence backing store のマウントに失敗しました: $persist_source"
+}
+
+mount_persistence_image() {
+    local image_path="${1:-${PERSIST_BACKING_MOUNT_DIR}/persistence.img}"
+
+    [ -f "$image_path" ] || fail "persistence.img が見つかりません: $image_path"
+
+    mkdir -p "$PERSIST_MOUNT_DIR"
+    mount -o loop "$image_path" "$PERSIST_MOUNT_DIR" || fail "persistence.img のマウントに失敗しました: $image_path"
 }
 
 # 指定マウントポイントがマウント済みならアンマウントする
@@ -65,6 +76,7 @@ unmount_if_mounted() {
 # create処理で使う全マウントポイントをアンマウントする
 unmount_all_workdirs() {
     unmount_if_mounted "${PERSIST_MOUNT_DIR:-}"
+    unmount_if_mounted "${PERSIST_BACKING_MOUNT_DIR:-}"
     close_luks_persistence || true
     unmount_if_mounted "${LIVE_MOUNT_DIR:-}"
     unmount_if_mounted "${EFI_MOUNT_DIR:-}"

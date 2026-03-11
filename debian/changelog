@@ -1,9 +1,26 @@
-oyo-portable-usb-creator (0.2.0) UNRELEASED; urgency=medium
+oyo-portable-usb-creator (0.5.0) UNRELEASED; urgency=medium
+
+  * persistence領域をパーティション→イメージファイル化
+
+ -- toshio <solution92001@gmail.com>  Wed, 11 Mar 2026 20:40:56 +0900
+
+oyo-portable-usb-creator (0.4.0) unstable; urgency=medium
+
+  * 暗号化機能を追加
+
+ -- toshio <solution92001@gmail.com>  Wed, 11 Mar 2026 18:19:14 +0900
+
+oyo-portable-usb-creator (0.3.0) unstable; urgency=medium
+
+  * 画面レイアウトの調整/文字化け対策
+
+ -- toshio <solution92001@gmail.com>  Wed, 11 Mar 2026 18:18:35 +0900
+
+oyo-portable-usb-creator (0.2.0) unstable; urgency=medium
 
   * 画面のデザインを修正
-  * 
 
- -- toshio <solution92001@gmail.com>  Mon, 09 Mar 2026 21:44:12 +0900
+ -- toshio <solution92001@gmail.com>  Wed, 11 Mar 2026 18:17:55 +0900
 
 oyo-portable-usb-creator (0.1.0) unstable; urgency=medium
 

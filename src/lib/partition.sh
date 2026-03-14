@@ -38,7 +38,7 @@ close_luks_persistence() {
 #   1 = bios_grub (未フォーマット)
 #   2 = EFI (FAT32)
 #   3 = LIVE (ext4)
-#   4 = persistence.img 格納用 backing store (ext4 / LUKS コンテナ)
+#   4 = persistence パーティション (ext4 / LUKS コンテナ)
 create_portable_partitions() {
     local dev="$1"
     local iso="$2"
@@ -72,8 +72,8 @@ create_portable_partitions() {
     # LIVE
     parted -s "$dev" mkpart LIVE ext4 "${live_start_mib}MiB" "${live_end_mib}MiB"
 
-    # persistence.img 格納用 backing store
-    parted -s "$dev" mkpart OYOPORT_DATA ext4 "${live_end_mib}MiB" 100%
+    # persistence
+    parted -s "$dev" mkpart persistence ext4 "${live_end_mib}MiB" 100%
 
     partprobe "$dev"
     udevadm settle || true
@@ -102,7 +102,7 @@ format_portable_partitions() {
 
     case "$encryption_mode" in
         none)
-            mkfs.ext4 -F -L OYOPORT_DATA "$p4"
+            mkfs.ext4 -F -L persistence "$p4"
             ;;
         luks)
             [ -n "$passphrase_file" ] || fail "LUKSパスフレーズファイルが指定されていません"
@@ -114,7 +114,7 @@ format_portable_partitions() {
                 "$p4" || fail "LUKS初期化に失敗しました: $p4"
 
             open_luks_persistence "$p4" "$passphrase_file"
-            mkfs.ext4 -F -L OYOPORT_DATA "/dev/mapper/${mapper_name}"
+            mkfs.ext4 -F -L persistence "/dev/mapper/${mapper_name}"
             close_luks_persistence
             ;;
         *)

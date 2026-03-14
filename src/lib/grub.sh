@@ -20,7 +20,7 @@ install_efi_boot_files() {
 
 build_portable_kernel_args() {
     local encryption_mode="${1:-none}"
-    local args="boot=live persistence persistence-storage=file persistence-label=persistence.img oyo.mode=portable quiet splash"
+    local args="boot=live persistence oyo.mode=portable quiet splash"
 
     case "$encryption_mode" in
         none)
@@ -43,7 +43,7 @@ write_portable_grub_cfg() {
     local grub_timeout="${3:-0}"
     local kernel_path="${4:-/live/vmlinuz}"
     local initrd_path="${5:-/live/initrd.img}"
-    local kernel_args="${6:-boot=live persistence persistence-storage=file persistence-label=persistence.img oyo.mode=portable quiet splash}"
+    local kernel_args="${6:-boot=live persistence oyo.mode=portable quiet splash}"
 
     [ -f "$template" ] || fail "GRUBテンプレートが見つかりません: $template"
 

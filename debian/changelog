@@ -1,4 +1,10 @@
-oyo-portable-usb-creator (0.5.0) UNRELEASED; urgency=medium
+oyo-portable-usb-creator (0.6.0) UNRELEASED; urgency=medium
+
+  * persistence領域をイメージファイル→パーティションに戻した
+
+ -- toshio <solution92001@gmail.com>  Sun, 15 Mar 2026 21:34:19 +0900
+
+oyo-portable-usb-creator (0.5.0) unstable; urgency=medium
 
   * persistence領域をパーティション→イメージファイル化
 
